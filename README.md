@@ -1,2 +1,2 @@
 # zebrafishchoice
-Analysis of female zebrafish mate choice
+Analysis of female zebrafish mate choice data
