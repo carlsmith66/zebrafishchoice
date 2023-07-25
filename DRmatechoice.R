@@ -14,17 +14,6 @@ dr <- read.table(file = "DRdata.txt",
 
 str(dr, vec.len=3)
 
-#'data.frame':	288 obs. of  9 variables:
-# $ trial  : int  1 1 ...
-# $ day    : int  1 1 ...
-# $ rep    : int  1 1 ...
-# $ male   : int  1 2 ...
-# $ malelen: int  35 36 ...
-# $ female : int  1 3 ...
-# $ femlen : int  39 40 ...
-# $ eggs   : int  0 0 ...
-# $ tank   : int  5 3 ...
-
 #########################################
 # Load packages
 library(arm)
@@ -54,6 +43,7 @@ library(zoo)
 library(rio)
 library(lmtest)
 library(AICcmodavg)
+library(INLA)
 
 #=======================================
 #Data exploration
@@ -74,16 +64,13 @@ dr$fCross <- as.factor(dr$cross)
 dr$fTank  <- as.factor(dr$tank)
 
 # Define preferred figure format
-My_theme <- theme(axis.text.y = element_blank(),
-                  axis.ticks.y = element_blank(),
-                  axis.ticks.x=element_blank(),
-                  panel.background = element_blank(),
-                  panel.border = element_rect(fill = NA, size = 1),
-                  strip.background = element_rect(fill = "white", 
-                                                  color = "white", size = 1),
-                  text = element_text(size = 14),
-                  panel.grid.major = element_line(colour = "white", size = 0.1),
-                  panel.grid.minor = element_line(colour = "white", size = 0.1))
+My_theme <- theme(panel.background = element_blank(),  
+                  panel.border = element_rect(fill = NA, size = 1),  
+                  strip.background = element_rect(fill = "white",  
+                                                 color = "white"), 
+                  text = element_text(size = 12),  
+                  panel.grid.major = element_line(colour = "white"),  
+                  panel.grid.minor = element_line(colour = "white")) 
 
 # A function for dotplots
 multi_dotplot <- function(filename, Xvar, Yvar){
@@ -112,65 +99,33 @@ grid.arrange(p1, p2, nrow = 1)
 
 #=======================================
 
-# 2. Normality and homogeneity of the response variable
+# 2. Distribution of the response variable
 
-# Frequency polygon plot for catch
+# Frequency polygon plot for egg number
 dr %>% ggplot(aes(eggs)) +
   geom_freqpoly(bins = 15) +
   labs(x = "Eggs laid", y = "Frequency") +
   My_theme +
   theme(panel.border = element_rect(colour = "black", 
                                     fill=NA, size = 1))
-
-#Shapiro-Wilk test for deviation from normality
-shapiro.test(dr$eggs)
-
-# Shapiro-Wilk normality test
-# 
-# data:  dr$eggs
-# W = 0.78262, p-value <0.001
-
-# Data positively skewed, with a lot of zeros
+#Looks like zero inflation and overdispersion
 
 #=======================================
 
 # 3. Balance of categorical variables
 
-# Among bricks
 table(dr$fRep)
-#  1  2  3  4  5  6 
-# 48 48 48 48 48 48
-
 table(dr$fTrial)
-# 1  2  3 
-# 96 96 96 
-
 table(dr$fDay)
-# 1  2  3  4  5  6  7  8  9 10 11 12 
-# 24 24 24 24 24 24 24 24 24 24 24 24
-
 table(dr$fMale)
-# mA mB mC mD mE mF mG mH mI mJ mK mL mM mN mO mP mQ mR mS mT mU mV mW mX 
-# 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 
-
 table(dr$fFem)
-# fA fB fC fD fE fF fG fH fI fJ fK fL fM fN fO fP fQ fR fS fT fU fV fW fX 
-# 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12  
-
 table(dr$fCross)
 length(unique(dr$fCross))
 # 96 unique crosses
 
 table(dr$fTank)
-# 1  2  3  5  6  8  9 10 11 12 14 15 16 18 19 20 21 22 23 25 26 27 29 30 
-# 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 12 
-
 table(dr$fMale, dr$fTank)
-# Male and tank collinear
-
 table(dr$fFem, dr$fTank)
-# And female
-
 # Can't include Tank as a term - it is a random 'male' effect
 
 ######################################
@@ -180,7 +135,7 @@ table(dr$fFem, dr$fTank)
 # What is the percentage of zeros in the response variable
 
 round(sum(dr$eggs == 0) * 100 / nrow(dr),0)
-# 38% - a high proportion of zeros in the data....
+# 38% - a high proportion of zeros
 
 ######################################
 
@@ -255,11 +210,11 @@ length(unique(dr$fCross))
 length(unique(dr$fTank))
 # 24 tanks
 
-# Each row of data cannot be assumed independent
-
 #####################################
 
-# Nested design (not fully crossed - coding of male, females, crosses important)
+# FIT MODEL
+
+# Nested design (not fully crossed)
 poisson1 <- glmmTMB(eggs ~ day + 
                            (1|fFem) +
                            (1|fMale) +
@@ -269,14 +224,11 @@ poisson1 <- glmmTMB(eggs ~ day +
                            data = dr)
 
 check_overdispersion(poisson1)   # 90 - overdispersed
-
-# Simulate data using model parameters
-SimPois <- simulateResiduals(fittedModel = poisson1, plot = F)
-
-# Use simulated data to test zero-inflation in both (overdispersed) models
-par(mfrow=c(1,1), mar=c(5,5,4,4), cex.lab = 1)
-testZeroInflation(SimPois)
-# Too many zeros for a Poisson distribution
+Res1 <- simulateResiduals(fittedModel = poisson1, plot = F)
+plotResiduals(Res1)
+plotQQunif(Res1)
+testZeroInflation(Res1) # zero inflation
+# zero inflation and overdispersion
 
 # Deal with overdispersion with a negative binomial (linear) model
 nbinom1 <- glmmTMB(eggs ~ day +
@@ -287,144 +239,586 @@ nbinom1 <- glmmTMB(eggs ~ day +
                           ziformula=~0,
                           data = dr)
 
-check_overdispersion(nbinom1)  #0.4 Underdispersed
-
 # Simulate data using model parameters
-SimPois <- simulateResiduals(fittedModel = nbinom1, plot = F)
+Res2 <- simulateResiduals(fittedModel = nbinom1, plot = F)
 
 # Use simulated data to test zero-inflation in both (overdispersed) models
 par(mfrow=c(1,1), mar=c(5,5,4,4), cex.lab = 1)
-testZeroInflation(SimPois)
+testZeroInflation(Res2)
 # Negative binomial can handle this number of zeros
+
+plotQQunif(Res2) # Still problem with dispersion
 
 # Alternatively, deal with zeros with a zero-inflated negative binomial (linear) model
 zinb <- glmmTMB(eggs ~ day + 
-                       (1|fCross) + 
-                       (1|fFem) + 
+                       (1|fCross) +
+                       (1|fFem) +
                        (1|fMale),
                        family = nbinom1(link = "log"),
                        ziformula=~ day,
                        data = dr)
-
-check_overdispersion(zinb)  #0.55 Still some underdispersion
+summary(zinb)
 
 # Simulate data using model parameters
 SimZINB <- simulateResiduals(fittedModel = zinb, plot = F)
-
-# Examine zero-inflation
-par(mfrow=c(1,1), mar=c(5,5,4,4), cex.lab = 1)
-testZeroInflation(SimZINB)
-# No problem with zero-inflation
+testZeroInflation(SimZINB)# No problem with zero-inflation
+plotQQunif(SimZINB)# Still problem with dispersion
 
 # Compare  models with AIC
 models <- list(poisson1, nbinom1, zinb)
 aictab(cand.set = models)
 # zinb most probable
+# But variance explained by random terms is unusually low
+# An option is to regularise the model fit with priors
 
-# Which random term is significant?
-# Likelihood Ratio Test
-zinbA <- glmmTMB(eggs ~ day +
-                       (1|fCross) + 
-                       (1|fMale),
-                       family = nbinom1(link = "log"),
-                       ziformula=~day,
-                       data = dr)
+#===================================================
+# Fit Bayesian model
+I1.def <- inla(eggs ~ day +
+                      f(fFem, model = "iid") +
+                      f(fMale, model = "iid") +
+                      f(fCross, model = "iid"),
+                      control.compute = list(dic = TRUE, waic = TRUE),    
+                      control.predictor = list(compute = TRUE),  
+                      family = "poisson", 
+                      data = dr)
 
-zinbB <- glmmTMB(eggs ~ day +
-                       (1|fCross) + 
-                       (1|fFem),
-                       family = nbinom1(link = "log"),
-                       ziformula=~day,
-                       data = dr)
+#Posterior mean values and 95% CI
+Beta1.def <- I1.def$summary.fixed[,c("mean", "0.025quant", "0.975quant")] 
+print(Beta1.def, digits = 2)  
+# Identical output to frequentist model
 
-zinbC <- glmmTMB(eggs ~ day +
-                      (1|fFem) + 
-                      (1|fMale),
-                       family = nbinom1(link = "log"),
-                       ziformula=~day,
-                       data = dr)
+bri.fixed.plot(I1.def)
+bri.random.plot(I1.def)
+bri.hyperpar.plot(I1.def)
 
-zinbD <- glmmTMB(eggs ~ day +
-                       (1|fCross),
-                       family = nbinom1(link = "log"),
-                       ziformula=~day,
-                       data = dr)
+# Hyper parameters
+summary(I1.def)
+HyperPar.I1.def <- bri.hyperpar.summary(I1.def)
+round(HyperPar.I1.def, digits = 3)
+# Random terms for male and female look suspicious (like the frequentist model)
 
-# Likelihood ratio test
-lrtest(zinb,zinbA) #additive female effects not important
-lrtest(zinb,zinbB) #additive male effects not important
-lrtest(zinb,zinbC) #non-additive effects highly important
-lrtest(zinb,zinbD) #additive effects not important
+# Add PC priors to Bayesian model
+# Derive PC prior
+sdres <- sd(dr$eggs)
+round(sdres,0)
+pcprior <- list(prec = list(prior="pc.prec", param = c(3*sdres,0.01)))
 
-###############################
+# Run model with PC priors
+I1.pc <- inla(eggs ~ day +
+                     f(fFem, model = "iid", hyper = pcprior) +
+                     f(fMale, model = "iid", hyper = pcprior) +
+                     f(fCross, model = "iid", hyper = pcprior),
+                     control.compute = list(dic = TRUE, waic = TRUE),    
+                     control.predictor = list(compute = TRUE),  
+                     family = "poisson", 
+                     data = dr)
 
-# MODEL VALIDATION
+#Posterior mean values and 95% CI
+Beta1.pc <- I1.pc$summary.fixed[,c("mean", "0.025quant", "0.975quant")] 
+print(Beta1.pc, digits = 2)  
 
-#Obtain residuals and fitted values
-Res <- resid(zinb)
-Fit <- fitted(zinb)
+I1.pc$summary.fixed
+bri.hyperpar.summary(I1.pc)
+bri.hyperpar.plot(I1.pc)
+# Random terms look sensible
 
-# Plot residuals against fitted values
-par(mfrow = c(1,2), mar = c(5,5,2,2))
-plot(x = Fit,
-     y = Res,
+overdisp_post <- inla.tmarginal(fun=function(x) 1/x, marg=I1.pc$marginals.hyperpar[[1]])
+round(inla.emarginal(fun=function(x) x, marg=overdisp_post), 4)
+round(inla.qmarginal(c(0.025, 0.975), overdisp_post), 4)
+# Model may be underdispersed
+
+bri.random.plot(I1.pc)
+
+#=============================
+
+# Check for overdispersion 
+I1.sim <- inla(eggs ~ day +
+                f(fFem, model = "iid", hyper = pcprior) +
+                f(fMale, model = "iid", hyper = pcprior) +
+                f(fCross, model = "iid", hyper = pcprior),
+                control.compute = list(config = TRUE),     #Allow for simulation    
+                family= "poisson",
+                data = dr)
+
+
+# Simulate 1000 sets of regression parameters
+NSim <- 1000
+SimData <- inla.posterior.sample(n = NSim, result = I1.sim)
+
+#1.
+nd <- length(rownames(SimData[[1]]$latent))
+LastBeta <- rownames(SimData[[1]]$latent)[nd]
+
+#2.
+substrRight <- function(x, n){ substr(x, nchar(x)-n+1, nchar(x)) }
+Last2Character <- substrRight(LastBeta, 2)
+
+#3. 
+BetasInModel <- rownames(I1.sim$summary.fixed) #<--Change the name 'I1.sim' for your model
+MyID         <- function(x){ which(rownames(SimData[[1]]$latent) == x) }
+BetasInINLA <- BetasInModel
+if (Last2Character == ":1") { BetasInINLA  <- paste(BetasInModel, ":1", sep ="") }
+
+#4.
+BetaRows <- lapply(BetasInINLA, MyID)
+BetaRows <- as.numeric(BetaRows)
+
+# Random effects
+MyGrep <- function(x, SimulatedData){ 
+  names.SimData <- attributes(SimulatedData[[1]]$latent)$dimnames[[1]]
+  names.SimData[grep(x, names.SimData)] 
+}
+
+# Female
+names.SimData <- attributes(SimData[[1]]$latent)$dimnames[[1]] 
+FemNames   <- names.SimData[grep("fFem", names.SimData)]
+FemNames
+
+# Determine on which rows the random effects are
+FemRows <- lapply(FemNames, MyID)
+FemRows <- as.numeric(FemRows)
+FemRows
+
+# Male
+MaleNames <- names.SimData[grep("fMale", names.SimData)]
+
+# Determine on which rows the random effects are
+MaleRows <- lapply(MaleNames, MyID)
+MaleRows <- as.numeric(MaleRows)
+
+# Cross
+CrossNames <- names.SimData[grep("fCross", names.SimData)]
+
+# Determine on which rows the random effects are
+CrossRows <- lapply(CrossNames, MyID)
+CrossRows <- as.numeric(CrossRows)
+
+# Extract betas and random effects and calculate
+# the fitted values and simulate count data
+N    <- nrow(dr)
+Ysim <- matrix(nrow = N, ncol = NSim)
+mu.i <- matrix(nrow = N, ncol = NSim)
+X    <- model.matrix(~ day,
+                     data = dr)
+X   <- as.matrix(X)
+
+FemID <- as.numeric(as.factor(dr$fFem))
+MaleID   <- as.numeric(as.factor(dr$fMale))
+CrossID    <- as.numeric(as.factor(dr$fCross))
+
+for (i in 1: NSim){
+  Betas     <- SimData[[i]]$latent[BetaRows] 
+  Fem_i     <- SimData[[i]]$latent[FemRows] 
+  Male_ij   <- SimData[[i]]$latent[MaleRows]   
+  Cross_ijk <- SimData[[i]]$latent[CrossRows] 
+  
+  eta <- X %*% Betas + Fem_i[FemID] + Male_ij[MaleID] + Cross_ijk[CrossID] 
+  mu.i[,i] <- exp(eta)                        
+  Ysim[,i] <- rpois(n = N, lambda = mu.i[,i]) 
+}
+
+# First 6 rows of the first 10 simulated data sets
+head(Ysim[,1:10])
+
+# Calculate the dispersion statistic in each of the 1,000
+# data sets.
+Disp <- vector(length = NSim)
+N    <- nrow(dr)
+Np   <- length(rownames(I1.sim$summary.fixed)) + 1 + 1 + 1 #(3 sigmas)
+for(i in 1:NSim){
+  ei <- (Ysim[,i] - mu.i[,i]) / sqrt(mu.i[,i])
+  Disp[i] <- sum(ei^2) / (N - Np)
+}
+
+#Plot this as a table
+par(mfrow = c(1,1), mar = c(5,5,2,2), cex.lab = 1.5)
+hist(Disp, 
+     xlab = "Dispersion statistic",
+     ylab = "Frequency",
+     xlim = c(0, 100),
+     main = "Simulation results")
+points(x = Dispersion, 
+       y = 0, 
+       pch = 16, 
+       cex = 5, 
+       col = 2)
+# The red dot is the dispersion in the original data set.
+# Poisson model does not handle overdispersion in the data
+
+## Plot Pearson residuals vs fitted values
+mu1 <- I1.pc$summary.fitted.values[,"mean"]
+E1  <- (dr$eggs - mu1) / sqrt(mu1)
+
+par(mfrow = c(1,1), mar = c(5,5,3,3), cex.lab = 1)
+plot(x = mu1,
+     y = E1,
      xlab = "Fitted values",
-     ylab = "Residuals",
-     pch = 16, cex = 1.5)
-abline(h = 0, lty = 2)
+     ylab = "Pearson residuals")
+abline (h = 0, lty = 2)
+# Not bad
 
-# Day
+par(mfrow = c(1,1), mar = c(5,5,3,3), cex.lab = 1)
 plot(x = dr$day,
-     y = Res,
-     xlab = "Fitted values",
-     ylab = "Residuals",
-     pch = 16, cex = 1.5)
-abline(h = 0, lty = 2)
+     y = E1,
+     xlab = "Day",
+     ylab = "Pearson residuals")
+abline (h = 0, lty = 2)
+# Not bad
+
+# Zero inflation
+N <- nrow(dr)
+ZerosInData <- 100 * sum(dr$eggs == 0) / N
+ZerosInData
+
+# In the simulated data:
+Zeros <- vector(length = NSim)
+for(i in 1:NSim){
+  Zeros[i] <- 100 * sum(Ysim[,i] == 0) / N
+}
+
+#Plot these as a table
+par(mar = c(5,5,2,2), cex.lab = 1.5)
+hist(Zeros, 
+     xlim = c(0, 40),
+     xlab = "Percentage of zeros",
+     ylab = "Frequency",
+     main = "Simulation results")
+points(x = ZerosInData, 
+       y = 0, 
+       pch = 16, 
+       cex = 5, 
+       col = 2)
+# The red dot is the percentage of zeros in the original data set.
+# Problem with zero inflation
 
 
-# Examine random effects
-set_theme(base = theme_bw(),
- axis.textsize = 1)
+# ============================================
+# Try zero-adjusted Poisson GLMM
+# ============================================
 
-plot_model(zinb,
-           vline.color = "black",
-                 title = "",
-                  type = "re")
+# Create binomial variable - eggs.01
+dr$eggs.01 <- ifelse(test = dr$eggs >0, yes = 1, no = 0)
 
-# Plot fixed effect day
-My_theme <- theme(panel.background = element_blank(),
-                  panel.border = element_rect(fill = NA, size = 1),
-                  strip.background = element_rect(fill = "white", 
-                                                  color = "white", size = 1),
-                  text = element_text(size = 14),
-                  panel.grid.major = element_line(colour = "white", size = 0.1),
-                  panel.grid.minor = element_line(colour = "white", size = 0.1))
+# Fit a Bernoulli model to binomial data
+bern <- inla(eggs.01 ~ day +
+                         f(fFem, model = "iid", hyper = pcprior) +
+                         f(fMale, model = "iid", hyper = pcprior) +
+                         f(fCross, model = "iid", hyper = pcprior),
+                         control.compute = list(dic = TRUE, waic = TRUE, cpo = TRUE),    
+                         control.predictor = list(compute = TRUE),  
+                         family = "binomial", 
+                         data = dr)
 
+#Posterior mean values and 95% CI
+Betabern <- bern$summary.fixed[,c("mean", "sd", "0.025quant", "0.975quant")] 
+print(Betabern, digits = 2)  
+bri.fixed.plot(bern, together = FALSE)
 
-plot_model(zinb,
-                type = "pred",
-               terms = c("day [all]"),
-        show.zeroinf = T,
-           show.data = T,
-           pred.type = c("fe"),
-               title = "",
-         show.legend = F,
-              jitter = 0.5,
-          axis.title = c("Day of experiment","Eggs spawned")) + 
-          My_theme +
-         scale_x_continuous(limits = c(0, 12), 
-                            breaks = c(0, 2, 4, 6, 8, 10, 12)) +
-  scale_y_continuous(limits = c(0, 700), 
-                     breaks = c(0, 100, 200, 300, 400, 500, 600, 700))
+# Random terms
+round(bri.hyperpar.summary(bern),2)
+bri.hyperpar.plot(bern, together = FALSE)
 
-# Tabulate results
-tab_model(zinbD,
-          show.zeroinf = T,
-             dv.labels = c("ZINB GLMM (D. rerio mate choice)"),
-           string.pred = "Coeffcient",
-             string.ci = "Conf. Int (95%)",
-              string.p = "P-value",
-               p.style = c("numeric"),
-                emph.p = FALSE,
-             transform = NULL
-          )
+# Remove random terms sequentially and compare WAIC
+bern.F <- inla(eggs.01 ~ day +
+                         #f(fFem, model = "iid", hyper = pcprior) +
+                         f(fMale, model = "iid", hyper = pcprior) +
+                         f(fCross, model = "iid", hyper = pcprior),
+                         control.compute = list(waic = TRUE),    
+                         control.predictor = list(compute = TRUE),  
+                         family = "binomial", 
+                         data = dr)
+
+bern.M <- inla(eggs.01 ~ day +
+                         f(fFem, model = "iid", hyper = pcprior) +
+                         #f(fMale, model = "iid", hyper = pcprior) +
+                         f(fCross, model = "iid", hyper = pcprior),
+                         control.compute = list(waic = TRUE),    
+                         control.predictor = list(compute = TRUE),  
+                         family = "binomial", 
+                         data = dr)
+
+bern.C <- inla(eggs.01 ~ day +
+                         f(fFem, model = "iid", hyper = pcprior) +
+                         f(fMale, model = "iid", hyper = pcprior),
+                         #f(fCross, model = "iid", hyper = pcprior),
+                         control.compute = list(waic = TRUE),    
+                         control.predictor = list(compute = TRUE),  
+                         family = "binomial", 
+                         data = dr)
+
+bern.FM <- inla(eggs.01 ~ day +
+                          #f(fFem, model = "iid", hyper = pcprior) +
+                          #f(fMale, model = "iid", hyper = pcprior) +
+                          f(fCross, model = "iid", hyper = pcprior),
+                          control.compute = list(waic = TRUE),    
+                          control.predictor = list(compute = TRUE),  
+                          family = "binomial", 
+                          data = dr)
+
+FemRE     <- c(bern$waic$waic - bern.F$waic$waic)
+MaleRE    <- c(bern$waic$waic - bern.M$waic$waic) 
+CrossRE   <- c(bern$waic$waic - bern.C$waic$waic)
+FemMaleRE <- c(bern$waic$waic - bern.FM$waic$waic)
+
+round(FemRE,     digits = 1) #additive female effects not important
+round(MaleRE,    digits = 1) #additive male effects not important
+round(CrossRE,   digits = 1) #non-additive effects important
+round(FemMaleRE, digits = 1) #additive effects not important
+
+# within 2 units is considered about the same, 
+# within 7 units similar model fit, 
+# >7 different
+
+# Create plot
+
+MyData <- expand.grid(
+  day = seq(from = min(dr$day), 
+              to = max(dr$day), length = 50))
+Xpred <- model.matrix(~ 1 + day,
+                      data = MyData)
+head(Xpred)
+Xpred <- as.data.frame(Xpred)
+lcb <- inla.make.lincombs(Xpred)
+I1.Pred <- inla(eggs.01 ~ day +
+                          f(fFem, model = "iid", hyper = pcprior) +
+                          f(fMale, model = "iid", hyper = pcprior) +
+                          f(fCross, model = "iid", hyper = pcprior),
+                          control.predictor = list(link = 1,
+                                                compute = TRUE),
+                          data = dr, 
+                          lincomb = lcb,
+                          family = "binomial")
+
+# Get the marginal distributions:
+Pred.marg <- I1.Pred$marginals.lincomb.derived
+
+# The output above is on the logit-scale. 
+# This function converts x into exp(x) / (1 + exp(x))
+MyLogit <- function(x) {exp(x)/(1+exp(x))}
+
+MyData$mu <- unlist( 
+  lapply(
+    Pred.marg,
+    function(x) inla.emarginal(MyLogit,x)))
+
+MyData$selo <- unlist( 
+  lapply(
+    Pred.marg,
+    function(x) 
+      inla.qmarginal(c(0.025), 
+                     inla.tmarginal(MyLogit, x))))
+
+MyData$seup <- unlist( 
+  lapply(
+    Pred.marg,
+    function(x) 
+      inla.qmarginal(c(0.975), 
+                     inla.tmarginal(MyLogit, x))))
+
+plotA <- ggplot() +
+  geom_jitter(data = dr, aes(y = eggs.01, x = day),
+              shape = 16, size = 4, height = 0.015,
+              width = 0.45, alpha = 0.6) +
+  xlab("Day of experiment") + ylab("Probability of spawning") + 
+  My_theme + xlim(-0.5,12.5) +
+  geom_line(data = MyData, aes(x = day, y = mu)) +
+  geom_ribbon(data = MyData, aes(x = day, ymax = seup, ymin = selo),
+            alpha = 0.4)
+plotA
+
+# ======================================================
+# Model zero-truncated data with gpoisson distribution
+
+dr1 <- dr
+dr1$eggs.pos <- ifelse(test = dr$eggs ==0, yes = NA, no = dr$eggs)
+dr2 <- na.omit(dr1)
+
+gp <- inla(eggs.pos ~ day +
+                     f(fFem, model = "iid", hyper = pcprior) +
+                     f(fMale, model = "iid", hyper = pcprior) +
+                     f(fCross, model = "iid", hyper = pcprior),
+                     control.compute = list(dic = TRUE, waic = TRUE),    
+                     control.predictor = list(compute = TRUE),  
+                     family = "gpoisson", 
+                     data = dr2)
+
+#Posterior mean values and 95% CI
+Betagp <- gp$summary.fixed[,c("mean", "sd", "0.025quant", "0.975quant")] 
+print(Betagp, digits = 2)  
+bri.fixed.plot(gp, together = FALSE)
+
+bri.hyperpar.summary(gp)
+bri.hyperpar.plot(gp, together = FALSE)
+bri.random.plot(gp)
+
+gp.F <- inla(eggs.pos ~ day +
+                       #f(fFem, model = "iid", hyper = pcprior) +
+                        f(fMale, model = "iid", hyper = pcprior) +
+                        f(fCross, model = "iid", hyper = pcprior),
+                        control.compute = list(waic = TRUE),    
+                        control.predictor = list(compute = TRUE),  
+                        family = "gpoisson", 
+                        data = dr2)
+
+gp.M <- inla(eggs.pos ~ day +
+                        f(fFem, model = "iid", hyper = pcprior) +
+                       #f(fMale, model = "iid", hyper = pcprior) +
+                        f(fCross, model = "iid", hyper = pcprior),
+                        control.compute = list(waic = TRUE),    
+                        control.predictor = list(compute = TRUE),  
+                        family = "gpoisson", 
+                        data = dr2)
+
+gp.C <- inla(eggs.pos ~ day +
+                        f(fFem, model = "iid", hyper = pcprior) +
+                        f(fMale, model = "iid", hyper = pcprior),
+                       #f(fCross, model = "iid", hyper = pcprior),
+                        control.compute = list(waic = TRUE),    
+                        control.predictor = list(compute = TRUE),  
+                        family = "gpoisson", 
+                        data = dr2)
+
+gp.FM <- inla(eggs.pos ~ day +
+                        #f(fFem, model = "iid", hyper = pcprior) +
+                        #f(fMale, model = "iid", hyper = pcprior) +
+                         f(fCross, model = "iid", hyper = pcprior),
+                         control.compute = list(waic = TRUE),    
+                         control.predictor = list(compute = TRUE),  
+                         family = "gpoisson", 
+                         data = dr2)
+
+# Compare WAICs
+FemREgp     <- c(gp$waic$waic-gp.F$waic$waic)
+MaleREgp    <- c(gp$waic$waic-gp.M$waic$waic) 
+CrossREgp   <- c(gp$waic$waic-gp.C$waic$waic)
+FemMaleREgp <- c(gp$waic$waic-gp.FM$waic$waic)
+
+round(FemREgp,     digits = 1) #additive female effects not important
+round(MaleREgp,    digits = 1) #additive male effects not important
+round(CrossREgp,   digits = 2) #non-additive effects highly important
+round(FemMaleREgp, digits = 1) #additive effects not important
+
+# Create plot
+MyData <- expand.grid(
+  day = seq(from = min(dr$day), 
+            to = max(dr$day), length = 50))
+Xpred <- model.matrix(~ 1 + day, data = MyData)
+Xpred <- as.data.frame(Xpred)
+lcb <- inla.make.lincombs(Xpred)
+
+I1.Predgp <- inla(eggs.pos ~ day +
+                  f(fFem, model = "iid", hyper = pcprior) +
+                  f(fMale, model = "iid", hyper = pcprior) +
+                  f(fCross, model = "iid", hyper = pcprior),
+                  data = dr2, 
+                  lincomb = lcb,
+                  control.predictor = list(link = 1,
+                                         compute = TRUE),
+                  family = "gpoisson")
+
+# Get the marginal distributions:
+Pred.marg <- I1.Predgp$marginals.lincomb.derived
+
+MyData$mu <- unlist( 
+  lapply(
+    Pred.marg,
+    function(x) inla.emarginal(exp,x)))
+
+MyData$selo <- unlist( 
+  lapply(
+    Pred.marg,
+    function(x) 
+      inla.qmarginal(c(0.025), 
+                     inla.tmarginal(exp, x))))
+
+MyData$seup <- unlist( 
+  lapply(
+    Pred.marg,
+    function(x) 
+      inla.qmarginal(c(0.975), 
+                     inla.tmarginal(exp, x))))
+
+plotB <- ggplot() +
+  geom_jitter(data = dr2, aes(y = eggs.pos, x = day),
+                     shape = 16, size = 4, height = 0.01,
+                     width = 0.45, alpha = 0.6) +
+  xlab("Day of experiment") + ylab("Number of eggs spawned") + 
+  My_theme + xlim(-0.5,12.5) +
+  geom_line(data = MyData, aes(x = day, y = mu)) +
+  geom_ribbon(data = MyData, aes(x = day, ymax = seup, ymin = selo),
+                     alpha = 0.4)
+plotB
+
+# Combine plots
+ggarrange(plotA, plotB,
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1)
+
+#=======================================
+
+# Plot residuals - Bernoulli
+Fit <- I1.Pred$summary.fitted.values[, "mean"]
+Res <- dr$eggs.01 - Fit
+ResPlot <- cbind.data.frame(Fit,Res,dr$eggs.01,dr$day)
+
+FigA <- ggplot(ResPlot, aes(x=Fit, y=Res)) + 
+  geom_point(shape = 19, size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  ylab("Bayesian residuals") + xlab("Fitted values") +
+  theme(text = element_text(size=13)) +
+  theme(panel.background = element_blank()) +
+  theme(panel.border = element_rect(fill = NA, 
+                                    colour = "black", size = 1)) +
+  theme(strip.background = element_rect
+        (fill = "white", color = "white", size = 1))
+
+FigB <- ggplot(ResPlot, aes(x=dr$day, y=Res)) + 
+  geom_point(shape = 19, size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  ylab("") + xlab("day") +
+  theme(text = element_text(size=13)) +
+  theme(panel.background = element_blank()) +
+  theme(panel.border = element_rect(fill = NA, 
+                                    colour = "black", size = 1)) +
+  theme(strip.background = element_rect
+        (fill = "white", color = "white", size = 1))
+
+ggarrange(FigA, FigB,
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1)
+
+# Plot residuals - generalised Poisson
+Fit2 <- I1.Predgp$summary.fitted.values[, "mean"]
+Res2 <- dr2$eggs.pos - Fit
+ResPlot2 <- cbind.data.frame(Fit,Res,dr2$eggs.pos,dr2$day)
+
+# Plot residuals against fitted
+FigA2 <- ggplot(ResPlot2, aes(x=Fit2, y=Res2)) + 
+  geom_point(shape = 19, size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  ylab("Bayesian residuals") + xlab("Fitted values") +
+  theme(text = element_text(size=13)) +
+  theme(panel.background = element_blank()) +
+  theme(panel.border = element_rect(fill = NA, 
+                                    colour = "black", size = 1)) +
+  theme(strip.background = element_rect
+        (fill = "white", color = "white", size = 1))
+
+# And plot residuals against variables in the model
+FigB2 <- ggplot(ResPlot2, aes(x=dr2$day, y=Res2)) + 
+  geom_point(shape = 19, size = 3) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  ylab("") + xlab("day") +
+  theme(text = element_text(size=13)) +
+  theme(panel.background = element_blank()) +
+  theme(panel.border = element_rect(fill = NA, 
+                                    colour = "black", size = 1)) +
+  theme(strip.background = element_rect
+        (fill = "white", color = "white", size = 1))
+
+# Combine plots
+ggarrange(FigA2, FigB2,
+          labels = c("A", "B"),
+          ncol = 2, nrow = 1)
+
+# ==END==
