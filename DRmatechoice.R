@@ -43,7 +43,23 @@ library(zoo)
 library(rio)
 library(lmtest)
 library(AICcmodavg)
-library(INLA)
+
+# Install the latest stable version of INLA:
+install.packages("INLA", repos=c(getOption("repos"), 
+                                 INLA="https://inla.r-inla-download.org/R/stable"), dep=TRUE)
+
+# Also install brinla
+devtools::install_github("julianfaraway/brinla")
+
+# And install inlatools:
+ip <- rownames(installed.packages())
+if (!"remotes" %in% ip) {
+  install.packages("remotes")}
+if (!"INLA" %in% ip) {
+  install.packages(
+    "INLA", 
+    repos = c(getOption("repos"), "https://inla.r-inla-download.org/R/stable"))}
+remotes::install_github("inbo/inlatools")
 
 #=======================================
 #Data exploration
