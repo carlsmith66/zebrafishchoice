@@ -61,6 +61,12 @@ if (!"INLA" %in% ip) {
     repos = c(getOption("repos"), "https://inla.r-inla-download.org/R/stable"))}
 remotes::install_github("inbo/inlatools")
 
+library(INLA)
+library(brinla)
+library(inlatools)
+
+# For more details on installing and running the INLA package, see: https://www.r-inla.org/home
+
 #=======================================
 #Data exploration
 
